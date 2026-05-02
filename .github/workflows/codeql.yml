@@ -1,0 +1,22 @@
+# Ripple Voltage Calculator for Rectifier Circuits
+
+# User inputs
+rectifier_type = input("Enter rectifier type (half/full): ").lower()
+load_current = float(input("Enter load current in amps (A): "))
+frequency = float(input("Enter AC frequency in Hz (e.g. 50): "))
+capacitance = float(input("Enter capacitance in microfarads (uF): "))
+
+# Convert microfarads to farads
+capacitance_f = capacitance * 1e-6
+
+# Ripple voltage calculation
+if rectifier_type == "half":
+    ripple_voltage = load_current / (frequency * capacitance_f)
+elif rectifier_type == "full":
+    ripple_voltage = load_current / (2 * frequency * capacitance_f)
+else:
+    print("Invalid rectifier type")
+    exit()
+
+# Output result
+print(f"\nEstimated ripple voltage: {ripple_voltage:.2f} V")
