@@ -1,0 +1,912 @@
+/**
+ * Robotics / Industrial / AI Study Tracker Generator - Version 2
+ *
+ * Features:
+ * - Creates all sheets automatically
+ * - Drop-downs where needed
+ * - Protected header rows
+ * - Custom menu: "Study Tracker"
+ * - Refresh dashboard action
+ * - Refresh weekly skill map action
+ * - Automatic timestamp when you update a skill level
+ *
+ * Sheets created:
+ * 1. Skills_Matrix
+ * 2. Week_By_Week_Tracker
+ * 3. Dashboard
+ * 4. Projects_Register
+ * 5. Weekly_Skill_Map
+ *
+ * How to use:
+ * 1. Open a blank Google Sheet
+ * 2. Extensions -> Apps Script
+ * 3. Replace existing code with this file
+ * 4. Save
+ * 5. Run createRoboticsStudyTrackerV2()
+ * 6. Approve permissions if prompted
+ * 7. Reload the spreadsheet to see the custom menu
+ */
+
+const TRACKER_CONFIG = {
+  sheets: {
+    skills: "Skills_Matrix",
+    tracker: "Week_By_Week_Tracker",
+    dashboard: "Dashboard",
+    projects: "Projects_Register",
+    weeklyMap: "Weekly_Skill_Map"
+  },
+  columns: {
+    // Skills_Matrix
+    skills: {
+      category: 1,
+      skill: 2,
+      target: 3,
+      current: 4,
+      status: 5,
+      priority: 6,
+      weekPlanned: 7,
+      lastPracticed: 8,
+      evidence: 9,
+      projectName: 10,
+      notes: 11,
+      overdue: 12
+    },
+    // Week_By_Week_Tracker
+    tracker: {
+      week: 1,
+      track: 2,
+      primaryFocus: 3,
+      plannedHours: 4,
+      expectedSkills: 5,
+      addon: 6,
+      deliverables: 7,
+      done: 8,
+      completionPercent: 9,
+      actualLevel: 10,
+      evidence: 11,
+      comments: 12
+    },
+    // Projects_Register
+    projects: {
+      projectName: 1,
+      week: 2,
+      category: 3,
+      description: 4,
+      status: 5,
+      link: 6,
+      skills: 7,
+      completion: 8,
+      notes: 9
+    }
+  }
+};
+
+function onOpen() {
+  SpreadsheetApp.getUi()
+    .createMenu("Study Tracker")
+    .addItem("Create / Rebuild Tracker", "createRoboticsStudyTrackerV2")
+    .addSeparator()
+    .addItem("Refresh Dashboard", "rebuildDashboardOnlyV2")
+    .addItem("Refresh Weekly Skill Map", "refreshWeeklySkillMapV2")
+    .addSeparator()
+    .addItem("Apply Protections Again", "applyHeaderProtections")
+    .addItem("Apply Data Validations Again", "applyAllDataValidations")
+    .addSeparator()
+    .addItem("About", "showAboutDialog")
+    .addToUi();
+}
+
+function showAboutDialog() {
+  SpreadsheetApp.getUi().alert(
+    "Study Tracker V2",
+    "This tracker creates:\n\n" +
+    "- Skills_Matrix\n" +
+    "- Week_By_Week_Tracker\n" +
+    "- Dashboard\n" +
+    "- Projects_Register\n" +
+    "- Weekly_Skill_Map\n\n" +
+    "It also adds:\n" +
+    "- Drop-downs\n" +
+    "- Protected header rows\n" +
+    "- Automatic timestamps when skill levels are updated\n" +
+    "- Custom menu actions",
+    SpreadsheetApp.getUi().ButtonSet.OK
+  );
+}
+
+function createRoboticsStudyTrackerV2() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+
+  const sheetNames = Object.values(TRACKER_CONFIG.sheets);
+
+  sheetNames.forEach(name => {
+    const sh = ss.getSheetByName(name);
+    if (sh) ss.deleteSheet(sh);
+  });
+
+  const skillsSheet = ss.insertSheet(TRACKER_CONFIG.sheets.skills);
+  const trackerSheet = ss.insertSheet(TRACKER_CONFIG.sheets.tracker);
+  const dashboardSheet = ss.insertSheet(TRACKER_CONFIG.sheets.dashboard);
+  const projectsSheet = ss.insertSheet(TRACKER_CONFIG.sheets.projects);
+  const weeklyMapSheet = ss.insertSheet(TRACKER_CONFIG.sheets.weeklyMap);
+
+  buildSkillsMatrixV2(skillsSheet);
+  buildWeekTrackerV2(trackerSheet);
+  buildDashboardV2(dashboardSheet);
+  buildProjectsRegisterV2(projectsSheet);
+  buildWeeklySkillMapV2(weeklyMapSheet);
+
+  applyAllDataValidations();
+  applyHeaderProtections();
+  applyGlobalFormattingV2(ss);
+
+  SpreadsheetApp.flush();
+}
+
+function buildSkillsMatrixV2(sheet) {
+  const headers = [
+    "Category","Skill","Target_Level","Current_Level","Status","Priority",
+    "Week_Planned","Last_Practiced","Evidence","Project_Name","Notes","Overdue"
+  ];
+
+  const rows = getSkillsRows();
+
+  sheet.getRange(1, 1, 1, headers.length).setValues([headers]);
+  sheet.getRange(2, 1, rows.length, headers.length).setValues(rows);
+
+  const lastRow = sheet.getLastRow();
+
+  for (let r = 2; r <= lastRow; r++) {
+    sheet.getRange(r, TRACKER_CONFIG.columns.skills.status).setFormula(
+      '=IF(D' + r + '="","",IF(D' + r + '=0,"Not started",IF(D' + r + '=1,"Read/Watched",IF(D' + r + '=2,"Practiced with help",IF(D' + r + '=3,"Independent simple case",IF(D' + r + '=4,"Can troubleshoot/explain","Real project capable"))))))'
+    );
+
+    sheet.getRange(r, TRACKER_CONFIG.columns.skills.overdue).setFormula(
+      '=IF(AND(G' + r + '<>"",D' + r + '<3,G' + r + '<=IFERROR(MAX(FILTER(' +
+      TRACKER_CONFIG.sheets.tracker + '!A:A,' + TRACKER_CONFIG.sheets.tracker + '!H:H="Yes")),0)),"Yes","")'
+    );
+  }
+
+  styleSheetV2(sheet, headers.length);
+  addFilterV2(sheet, headers.length);
+  setColumnWidthsV2(sheet, [180,260,100,100,180,90,100,120,220,160,220,90]);
+  sheet.setFrozenRows(1);
+
+  applySkillsConditionalFormattingV2(sheet, lastRow);
+}
+
+function buildWeekTrackerV2(sheet) {
+  const headers = [
+    "Week","Track","Primary_Focus","Planned_Hours","Expected_Skills",
+    "Automation_or_AI_Addon","Deliverables","Done","Completion_Percent",
+    "Actual_Level_Achieved","Evidence_Link","Comments"
+  ];
+
+  const rows = [
+    [1,"ROS/Mobile","Python foundations and automation",10,"Python basics; Python file handling; Python JSON/CSV parsing; Log parsing automation; Documentation habits","Build log parser, config diff tool, basic rule-based fault categorizer","log_parser.py; config_diff.py; fault_summary.csv","No","","","",""],
+    [2,"ROS/Mobile","Linux diagnostics and system evidence collection",10,"Linux command line; Linux log inspection; Linux process inspection; Connectivity testing with ping; Evidence gathering","Build system snapshot tool and basic health score report","system_snapshot.py; health_report.txt","No","","","",""],
+    [3,"ROS/Mobile","Git and ROS 2 setup",10,"Git basics; ROS 2 installation; ROS environment setup; ROS workspace creation; Build with colcon","Build ROS environment validation script","ros_env_check.py; ros_setup_validation_report.md","No","","","",""],
+    [4,"ROS/Mobile","ROS communication fundamentals",10,"ROS nodes concept; ROS topics concept; ROS services concept; ROS parameters; ROS CLI tools; Missing node diagnosis; Wrong topic diagnosis","Build ROS health monitor against expected baseline","ros_health_monitor.py; expected_ros_baseline.json; ros_fault_report.csv","No","","","",""],
+    [5,"ROS/Mobile","Launch files RViz TF URDF",10,"ROS launch files; RViz basics; TF tree understanding; Detecting broken transforms; Visualizing topics in RViz","Build startup readiness checker and TF validation report","startup_readiness_check.py; tf_validation_report.txt","No","","","",""],
+    [6,"ROS/Mobile","Gazebo simulation and sensor diagnostics",10,"Gazebo basics; Running simulated robot; Rosbag record replay; Topic frequency monitoring; Stale data detection","Build sensor rate monitor and anomaly summary","sensor_rate_monitor.py; topic_rate_plot.png; sensor_anomaly_report.csv","No","","","",""],
+    [7,"ROS/Mobile","Networking and packet diagnostics",10,"IP addressing basics; Subnet understanding; Network interface inspection; Reachability diagnosis; Wireshark basics; Latency problem detection","Build device health checker with latency trend output","device_health_check.py; network_status_report.csv; latency_trend_plot.png","No","","","",""],
+    [8,"ROS/Mobile","Integrated ROS troubleshooting and triage",12,"Launch failure diagnosis; Parameter mismatch diagnosis; Baseline ROS system validation; Fault report writing for ROS issues; Hypothesis driven troubleshooting; Validating the fix","Build fault triage assistant rule-based tool","fault_triage_assistant.py; final_ros_troubleshooting_report.md","No","","","",""],
+    [9,"Industrial","Industrial automation fundamentals",10,"PLC role understanding; Digital input output concepts; Machine state concept; Interlock concept; Robot cell architecture understanding; Signal mapping table creation","Build IO documentation generator from signal CSV","io_doc_generator.py; robot_cell_signals.csv; io_summary.md","No","","","",""],
+    [10,"Industrial","PLC basics and interlocks",10,"Ladder logic basics; Contacts and coils; Fault reset logic reading; Reading permissive conditions; Detecting startup blockers","Build interlock checker from startup conditions","interlock_checker.py; startup_conditions.json; interlock_report.txt","No","","","",""],
+    [11,"Industrial","HMI alarms and alarm analytics",10,"Alarm warning distinction; HMI role understanding; Alarm driven troubleshooting; Writing recovery checklist","Build alarm history analyzer and frequency summary","alarm_history_analyzer.py; alarm_frequency.csv; alarm_summary_plot.png","No","","","",""],
+    [12,"Industrial","Industrial networking and communication diagnosis",10,"Industrial communication overview; Wrong IP subnet diagnosis; Timeout symptom recognition; Device offline state diagnosis; Communication table creation","Build cell network checker and trend log","cell_network_check.py; device_status_log.csv; network_trend_report.md","No","","","",""],
+    [13,"Industrial","Robot software environment and configuration",10,"Use of one vendor ecosystem; Robot controller concept; Program structure understanding; Tool TCP concept; Frame work object concept; Event log alarm log review","Build robot configuration diff and risk scorer","robot_config_diff.py; robot_config_risk_report.csv","No","","","",""],
+    [14,"Industrial","IO handshake and startup validation",10,"IO configuration awareness; Startup state awareness; PLC robot handshake understanding; Startup sequencing analysis; Start blocked diagnosis","Build startup validator and recovery hint generator","startup_validator.py; handshake_matrix.csv; recovery_hint_report.txt","No","","","",""],
+    [15,"Industrial","Backup restore versioning and predictive maintenance basics",10,"Importance of backup before changes; Backup checklist creation; Config comparison workflow; Version manifest creation; Risky parameter identification; Time series trend inspection; Predictive maintenance basics","Build software inventory report and maintenance trend plot","software_inventory_report.py; version_manifest.csv; maintenance_trend_plot.png","No","","","",""],
+    [16,"Industrial","Integrated industrial troubleshooting capstone",12,"Robot not ready diagnosis; Fault reset blocked diagnosis; IO mapping fault diagnosis; Mode mismatch diagnosis; Tool frame mismatch diagnosis; Recovery validation after fix; Writing root cause report; Communicating status clearly","Build industrial fault assistant and complete capstone case reports","industrial_fault_assistant.py; capstone_fault_reports.md; backup_restore_sop.md","No","","","",""]
+  ];
+
+  sheet.getRange(1,1,1,headers.length).setValues([headers]);
+  sheet.getRange(2,1,rows.length,headers.length).setValues(rows);
+
+  const lastRow = sheet.getLastRow();
+  for (let r = 2; r <= lastRow; r++) {
+    sheet.getRange(r, TRACKER_CONFIG.columns.tracker.completionPercent).setFormula(`=IF(H${r}="Yes",100,0)`);
+  }
+
+  styleSheetV2(sheet, headers.length);
+  addFilterV2(sheet, headers.length);
+  setColumnWidthsV2(sheet, [60,110,240,100,330,280,240,70,120,150,220,220]);
+  sheet.setFrozenRows(1);
+
+  applyTrackerConditionalFormattingV2(sheet, lastRow);
+}
+
+function buildDashboardV2(sheet) {
+  const headers = [
+    "Category","Total_Skills","Current_Score_Sum","Max_Score",
+    "Progress_Percent","Completed_Skills_At_3plus","High_Priority_Open","Notes"
+  ];
+
+  const categories = [
+    "Core Software",
+    "Networking",
+    "ROS Fundamentals",
+    "ROS Troubleshooting",
+    "ROS Visualization and Simulation",
+    "Industrial Fundamentals",
+    "PLC and Control",
+    "Industrial Networks",
+    "Robot Software and Controller",
+    "Industrial Diagnostics",
+    "Backup and Config Control",
+    "Automation Engineering",
+    "AI and Data",
+    "Troubleshooting Behavior"
+  ];
+
+  sheet.getRange(1,1,1,headers.length).setValues([headers]);
+  const rows = categories.map(c => [c,"","","","","","",""]);
+  sheet.getRange(2,1,rows.length,headers.length).setValues(rows);
+
+  const lastRow = sheet.getLastRow();
+  for (let r = 2; r <= lastRow; r++) {
+    sheet.getRange(r,2).setFormula(`=COUNTIF(${TRACKER_CONFIG.sheets.skills}!A:A,A${r})`);
+    sheet.getRange(r,3).setFormula(`=SUMIF(${TRACKER_CONFIG.sheets.skills}!A:A,A${r},${TRACKER_CONFIG.sheets.skills}!D:D)`);
+    sheet.getRange(r,4).setFormula(`=B${r}*5`);
+    sheet.getRange(r,5).setFormula(`=IF(D${r}=0,0,C${r}/D${r})`);
+    sheet.getRange(r,6).setFormula(`=COUNTIFS(${TRACKER_CONFIG.sheets.skills}!A:A,A${r},${TRACKER_CONFIG.sheets.skills}!D:D,">=3")`);
+    sheet.getRange(r,7).setFormula(`=COUNTIFS(${TRACKER_CONFIG.sheets.skills}!A:A,A${r},${TRACKER_CONFIG.sheets.skills}!F:F,"High",${TRACKER_CONFIG.sheets.skills}!D:D,"<3")`);
+  }
+
+  sheet.getRange("A20").setValue("Overall_Total_Skills");
+  sheet.getRange("B20").setFormula(`=COUNTA(${TRACKER_CONFIG.sheets.skills}!B:B)-1`);
+  sheet.getRange("A21").setValue("Overall_Current_Score");
+  sheet.getRange("B21").setFormula(`=SUM(${TRACKER_CONFIG.sheets.skills}!D:D)`);
+  sheet.getRange("A22").setValue("Overall_Max_Score");
+  sheet.getRange("B22").setFormula(`=B20*5`);
+  sheet.getRange("A23").setValue("Overall_Progress");
+  sheet.getRange("B23").setFormula(`=IF(B22=0,0,B21/B22)`);
+  sheet.getRange("A24").setValue("Total_Skills_At_3plus");
+  sheet.getRange("B24").setFormula(`=COUNTIF(${TRACKER_CONFIG.sheets.skills}!D:D,">=3")`);
+  sheet.getRange("A25").setValue("Completed_Weeks");
+  sheet.getRange("B25").setFormula(`=COUNTIF(${TRACKER_CONFIG.sheets.tracker}!H:H,"Yes")`);
+
+  styleSheetV2(sheet, headers.length);
+  sheet.setFrozenRows(1);
+  setColumnWidthsV2(sheet, [240,110,140,110,130,160,140,180]);
+  sheet.getRange("E2:E15").setNumberFormat("0.00%");
+  sheet.getRange("B23").setNumberFormat("0.00%");
+
+  applyDashboardConditionalFormattingV2(sheet, lastRow);
+  createDashboardChartsV2(sheet);
+}
+
+function buildProjectsRegisterV2(sheet) {
+  const headers = [
+    "Project_Name","Week","Category","Description","Status",
+    "Repo_or_File_Link","Key_Skills_Proven","Completion_Percent","Notes"
+  ];
+
+  const rows = [
+    ["Log Parser",1,"Automation","Parses robot logs and categorizes errors","Planned","","Python basics; Log parsing automation; Rule based fault classification","",""],
+    ["Config Diff Tool",1,"Automation","Compares old and new config files","Planned","","Python JSON/CSV parsing; Config comparison workflow","",""],
+    ["System Snapshot Tool",2,"Automation","Collects system evidence and health info","Planned","","Linux log inspection; Evidence gathering; Health score generation","",""],
+    ["ROS Environment Checker",3,"ROS","Validates ROS setup and workspace","Planned","","ROS environment setup; Build with colcon","",""],
+    ["ROS Health Monitor",4,"ROS","Checks expected ROS nodes and topics","Planned","","ROS CLI tools; Missing node diagnosis; Wrong topic diagnosis","",""],
+    ["Startup Readiness Check",5,"ROS","Validates launch readiness and required TF","Planned","","ROS launch files; TF tree understanding","",""],
+    ["Sensor Rate Monitor",6,"ROS + AI","Measures topic rate and flags anomalies","Planned","","Topic frequency monitoring; Sensor rate anomaly detection; Pandas basics","",""],
+    ["Device Health Checker",7,"Networking + Automation","Pings devices and tracks latency","Planned","","Reachability diagnosis; Device ping checker script; Latency trend analysis","",""],
+    ["Fault Triage Assistant",8,"ROS + AI","Rule-based ROS troubleshooting helper","Planned","","Fault triage assistant; Hypothesis driven troubleshooting","",""],
+    ["IO Documentation Generator",9,"Industrial + Automation","Generates IO docs from signal CSV","Planned","","Signal mapping table creation; CSV processing automation","",""],
+    ["Interlock Checker",10,"Industrial + Automation","Checks startup conditions and blockers","Planned","","Reading permissive conditions; Detecting startup blockers","",""],
+    ["Alarm History Analyzer",11,"Industrial + AI","Summarizes alarm history and trends","Planned","","Alarm driven troubleshooting; Fault frequency analysis","",""],
+    ["Cell Network Checker",12,"Industrial + Automation","Checks PLC robot and HMI connectivity","Planned","","Wrong IP subnet diagnosis; Timeout symptom recognition","",""],
+    ["Robot Config Diff",13,"Industrial + AI","Compares robot config exports and scores risk","Planned","","Tool TCP concept; Frame work object concept; Risk scoring for config changes","",""],
+    ["Startup Validator",14,"Industrial + Automation","Validates handshake and startup sequence","Planned","","PLC robot handshake understanding; Startup sequencing analysis","",""],
+    ["Software Inventory Report",15,"Industrial + Automation","Tracks versions backups and restore points","Planned","","Backup checklist creation; Version manifest creation","",""],
+    ["Industrial Fault Assistant",16,"Industrial + AI","Rule-based support assistant for cell faults","Planned","","Robot not ready diagnosis; Root cause reporting","",""]
+  ];
+
+  sheet.getRange(1,1,1,headers.length).setValues([headers]);
+  sheet.getRange(2,1,rows.length,headers.length).setValues(rows);
+
+  const lastRow = sheet.getLastRow();
+  for (let r = 2; r <= lastRow; r++) {
+    sheet.getRange(r, TRACKER_CONFIG.columns.projects.completion).setFormula(`=IF(E${r}="Done",100,IF(E${r}="In Progress",50,0))`);
+  }
+
+  styleSheetV2(sheet, headers.length);
+  addFilterV2(sheet, headers.length);
+  setColumnWidthsV2(sheet, [220,70,150,290,110,220,320,120,200]);
+  sheet.setFrozenRows(1);
+}
+
+function buildWeeklySkillMapV2(sheet) {
+  const headers = ["Week","Skill"];
+  sheet.getRange(1,1,1,headers.length).setValues([headers]);
+
+  const skillsSheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(TRACKER_CONFIG.sheets.skills);
+  const data = skillsSheet.getRange(2,1,skillsSheet.getLastRow()-1,7).getValues();
+  const rows = [];
+
+  data.forEach(r => {
+    const week = r[6];
+    const skill = r[1];
+    if (week && skill) rows.push([week, skill]);
+  });
+
+  if (rows.length > 0) {
+    sheet.getRange(2,1,rows.length,2).setValues(rows);
+  }
+
+  styleSheetV2(sheet, headers.length);
+  addFilterV2(sheet, headers.length);
+  sheet.setFrozenRows(1);
+  setColumnWidthsV2(sheet, [80,320]);
+}
+
+function rebuildDashboardOnlyV2() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const sheet = ss.getSheetByName(TRACKER_CONFIG.sheets.dashboard);
+  if (!sheet) throw new Error("Dashboard sheet not found");
+  sheet.clear();
+  removeExistingCharts(sheet);
+  buildDashboardV2(sheet);
+}
+
+function refreshWeeklySkillMapV2() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const sheet = ss.getSheetByName(TRACKER_CONFIG.sheets.weeklyMap);
+  if (!sheet) throw new Error("Weekly_Skill_Map sheet not found");
+  sheet.clear();
+  buildWeeklySkillMapV2(sheet);
+}
+
+function applyAllDataValidations() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+
+  const skillsSheet = ss.getSheetByName(TRACKER_CONFIG.sheets.skills);
+  const trackerSheet = ss.getSheetByName(TRACKER_CONFIG.sheets.tracker);
+  const projectsSheet = ss.getSheetByName(TRACKER_CONFIG.sheets.projects);
+
+  if (skillsSheet) {
+    const lastRow = skillsSheet.getLastRow();
+
+    const currentLevelRule = SpreadsheetApp.newDataValidation()
+      .requireValueInList(["0","1","2","3","4","5"], true)
+      .setAllowInvalid(false)
+      .build();
+    skillsSheet.getRange(2, TRACKER_CONFIG.columns.skills.current, lastRow - 1, 1).setDataValidation(currentLevelRule);
+
+    const priorityRule = SpreadsheetApp.newDataValidation()
+      .requireValueInList(["High","Medium","Low"], true)
+      .setAllowInvalid(false)
+      .build();
+    skillsSheet.getRange(2, TRACKER_CONFIG.columns.skills.priority, lastRow - 1, 1).setDataValidation(priorityRule);
+
+    const weekRule = SpreadsheetApp.newDataValidation()
+      .requireNumberBetween(1, 16)
+      .setAllowInvalid(false)
+      .build();
+    skillsSheet.getRange(2, TRACKER_CONFIG.columns.skills.weekPlanned, lastRow - 1, 1).setDataValidation(weekRule);
+  }
+
+  if (trackerSheet) {
+    const lastRow = trackerSheet.getLastRow();
+
+    const doneRule = SpreadsheetApp.newDataValidation()
+      .requireValueInList(["No","Yes"], true)
+      .setAllowInvalid(false)
+      .build();
+    trackerSheet.getRange(2, TRACKER_CONFIG.columns.tracker.done, lastRow - 1, 1).setDataValidation(doneRule);
+
+    const actualLevelRule = SpreadsheetApp.newDataValidation()
+      .requireValueInList(["0","1","2","3","4","5"], true)
+      .setAllowInvalid(false)
+      .build();
+    trackerSheet.getRange(2, TRACKER_CONFIG.columns.tracker.actualLevel, lastRow - 1, 1).setDataValidation(actualLevelRule);
+
+    const completionRule = SpreadsheetApp.newDataValidation()
+      .requireNumberBetween(0, 100)
+      .setAllowInvalid(true)
+      .build();
+    trackerSheet.getRange(2, TRACKER_CONFIG.columns.tracker.completionPercent, lastRow - 1, 1).setDataValidation(completionRule);
+  }
+
+  if (projectsSheet) {
+    const lastRow = projectsSheet.getLastRow();
+
+    const statusRule = SpreadsheetApp.newDataValidation()
+      .requireValueInList(["Planned","In Progress","Done"], true)
+      .setAllowInvalid(false)
+      .build();
+    projectsSheet.getRange(2, TRACKER_CONFIG.columns.projects.status, lastRow - 1, 1).setDataValidation(statusRule);
+  }
+}
+
+function applyHeaderProtections() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+
+  Object.values(TRACKER_CONFIG.sheets).forEach(name => {
+    const sheet = ss.getSheetByName(name);
+    if (!sheet) return;
+
+    removeExistingHeaderProtections(sheet);
+
+    const range = sheet.getRange(1, 1, 1, sheet.getLastColumn());
+    const protection = range.protect().setDescription(`Protected header row - ${name}`);
+
+    try {
+      const me = Session.getEffectiveUser();
+      protection.addEditor(me);
+      protection.removeEditors(protection.getEditors().filter(e => e.getEmail() !== me.getEmail()));
+      if (protection.canDomainEdit()) protection.setDomainEdit(false);
+    } catch (e) {
+      // ignore editor-setting issues
+    }
+  });
+}
+
+function removeExistingHeaderProtections(sheet) {
+  const protections = sheet.getProtections(SpreadsheetApp.ProtectionType.RANGE);
+  protections.forEach(p => {
+    const r = p.getRange();
+    if (r.getRow() === 1 && r.getNumRows() === 1) {
+      try {
+        p.remove();
+      } catch (e) {}
+    }
+  });
+}
+
+function onEdit(e) {
+  try {
+    if (!e || !e.range) return;
+
+    const sheet = e.range.getSheet();
+    const sheetName = sheet.getName();
+
+    if (sheetName === TRACKER_CONFIG.sheets.skills) {
+      handleSkillsMatrixEdit_(e);
+    } else if (sheetName === TRACKER_CONFIG.sheets.tracker) {
+      handleWeekTrackerEdit_(e);
+    } else if (sheetName === TRACKER_CONFIG.sheets.projects) {
+      handleProjectsEdit_(e);
+    }
+  } catch (err) {
+    Logger.log("onEdit error: " + err);
+  }
+}
+
+function handleSkillsMatrixEdit_(e) {
+  const sheet = e.range.getSheet();
+  const row = e.range.getRow();
+  const col = e.range.getColumn();
+
+  if (row === 1) return;
+
+  const c = TRACKER_CONFIG.columns.skills;
+
+  // Automatic timestamp when Current_Level is updated
+  if (col === c.current) {
+    const value = e.range.getValue();
+    if (value !== "" && value !== null) {
+      sheet.getRange(row, c.lastPracticed).setValue(new Date());
+    } else {
+      sheet.getRange(row, c.lastPracticed).clearContent();
+    }
+  }
+
+  // Optional: if Evidence updated and Last_Practiced empty, set timestamp
+  if (col === c.evidence) {
+    const lastPracticedCell = sheet.getRange(row, c.lastPracticed);
+    if (!lastPracticedCell.getValue()) {
+      lastPracticedCell.setValue(new Date());
+    }
+  }
+}
+
+function handleWeekTrackerEdit_(e) {
+  const sheet = e.range.getSheet();
+  const row = e.range.getRow();
+  const col = e.range.getColumn();
+
+  if (row === 1) return;
+
+  const c = TRACKER_CONFIG.columns.tracker;
+
+  // If Done = Yes and Completion is empty or formula-based, set to 100
+  if (col === c.done) {
+    const doneValue = sheet.getRange(row, c.done).getValue();
+    if (doneValue === "Yes") {
+      sheet.getRange(row, c.completionPercent).setValue(100);
+    } else if (doneValue === "No") {
+      sheet.getRange(row, c.completionPercent).setValue(0);
+    }
+  }
+}
+
+function handleProjectsEdit_(e) {
+  const sheet = e.range.getSheet();
+  const row = e.range.getRow();
+  const col = e.range.getColumn();
+
+  if (row === 1) return;
+
+  const c = TRACKER_CONFIG.columns.projects;
+
+  // If project status changes, update completion %
+  if (col === c.status) {
+    const status = sheet.getRange(row, c.status).getValue();
+    if (status === "Done") {
+      sheet.getRange(row, c.completion).setValue(100);
+    } else if (status === "In Progress") {
+      sheet.getRange(row, c.completion).setValue(50);
+    } else {
+      sheet.getRange(row, c.completion).setValue(0);
+    }
+  }
+}
+
+function styleSheetV2(sheet, numCols) {
+  sheet.getRange(1,1,1,numCols)
+    .setBackground("#1f4e78")
+    .setFontColor("#ffffff")
+    .setFontWeight("bold")
+    .setHorizontalAlignment("center");
+
+  sheet.getDataRange().setVerticalAlignment("middle");
+  sheet.getDataRange().setWrap(true);
+}
+
+function addFilterV2(sheet, numCols) {
+  const range = sheet.getRange(1,1,sheet.getLastRow(),numCols);
+  if (sheet.getFilter()) sheet.getFilter().remove();
+  range.createFilter();
+}
+
+function setColumnWidthsV2(sheet, widths) {
+  widths.forEach((w, i) => sheet.setColumnWidth(i + 1, w));
+}
+
+function applySkillsConditionalFormattingV2(sheet, lastRow) {
+  const rules = [];
+
+  const levelRange = sheet.getRange(`D2:D${lastRow}`);
+  rules.push(
+    SpreadsheetApp.newConditionalFormatRule().whenNumberEqualTo(0).setBackground("#f4cccc").setRanges([levelRange]).build(),
+    SpreadsheetApp.newConditionalFormatRule().whenNumberEqualTo(1).setBackground("#fce5cd").setRanges([levelRange]).build(),
+    SpreadsheetApp.newConditionalFormatRule().whenNumberEqualTo(2).setBackground("#fff2cc").setRanges([levelRange]).build(),
+    SpreadsheetApp.newConditionalFormatRule().whenNumberEqualTo(3).setBackground("#d9ead3").setRanges([levelRange]).build(),
+    SpreadsheetApp.newConditionalFormatRule().whenNumberEqualTo(4).setBackground("#93c47d").setRanges([levelRange]).build(),
+    SpreadsheetApp.newConditionalFormatRule().whenNumberEqualTo(5).setBackground("#6aa84f").setFontColor("#ffffff").setRanges([levelRange]).build()
+  );
+
+  const priorityRange = sheet.getRange(`F2:F${lastRow}`);
+  rules.push(
+    SpreadsheetApp.newConditionalFormatRule().whenTextEqualTo("High").setBackground("#f4cccc").setBold(true).setRanges([priorityRange]).build(),
+    SpreadsheetApp.newConditionalFormatRule().whenTextEqualTo("Medium").setBackground("#fce5cd").setRanges([priorityRange]).build(),
+    SpreadsheetApp.newConditionalFormatRule().whenTextEqualTo("Low").setBackground("#eeeeee").setRanges([priorityRange]).build()
+  );
+
+  const overdueRange = sheet.getRange(`L2:L${lastRow}`);
+  rules.push(
+    SpreadsheetApp.newConditionalFormatRule().whenTextEqualTo("Yes").setBackground("#ea9999").setBold(true).setRanges([overdueRange]).build()
+  );
+
+  const dateRange = sheet.getRange(`H2:H${lastRow}`);
+  rules.push(
+    SpreadsheetApp.newConditionalFormatRule().whenFormulaSatisfied('=AND(H2<>"",TODAY()-H2>21)').setBackground("#fff2cc").setRanges([dateRange]).build()
+  );
+
+  sheet.setConditionalFormatRules(rules);
+}
+
+function applyTrackerConditionalFormattingV2(sheet, lastRow) {
+  const rules = [];
+
+  const doneRange = sheet.getRange(`H2:H${lastRow}`);
+  const compRange = sheet.getRange(`I2:I${lastRow}`);
+
+  rules.push(
+    SpreadsheetApp.newConditionalFormatRule().whenTextEqualTo("No").setBackground("#f4cccc").setRanges([doneRange]).build(),
+    SpreadsheetApp.newConditionalFormatRule().whenTextEqualTo("Yes").setBackground("#d9ead3").setRanges([doneRange]).build(),
+    SpreadsheetApp.newConditionalFormatRule().whenNumberLessThan(50).setBackground("#f4cccc").setRanges([compRange]).build(),
+    SpreadsheetApp.newConditionalFormatRule().whenNumberBetween(50,79).setBackground("#fff2cc").setRanges([compRange]).build(),
+    SpreadsheetApp.newConditionalFormatRule().whenNumberGreaterThanOrEqualTo(80).setBackground("#d9ead3").setRanges([compRange]).build()
+  );
+
+  sheet.setConditionalFormatRules(rules);
+}
+
+function applyDashboardConditionalFormattingV2(sheet, lastRow) {
+  const rules = [];
+  const progressRange = sheet.getRange(`E2:E${lastRow}`);
+
+  rules.push(
+    SpreadsheetApp.newConditionalFormatRule()
+      .whenFormulaSatisfied('=E2<0.4')
+      .setBackground("#f4cccc")
+      .setRanges([progressRange]).build(),
+    SpreadsheetApp.newConditionalFormatRule()
+      .whenFormulaSatisfied('=AND(E2>=0.4,E2<0.7)')
+      .setBackground("#fff2cc")
+      .setRanges([progressRange]).build(),
+    SpreadsheetApp.newConditionalFormatRule()
+      .whenFormulaSatisfied('=E2>=0.7')
+      .setBackground("#d9ead3")
+      .setRanges([progressRange]).build()
+  );
+
+  sheet.setConditionalFormatRules(rules);
+}
+
+function createDashboardChartsV2(sheet) {
+  removeExistingCharts(sheet);
+
+  const progressChart = sheet.newChart()
+    .setChartType(Charts.ChartType.BAR)
+    .addRange(sheet.getRange("A1:A15"))
+    .addRange(sheet.getRange("E1:E15"))
+    .setPosition(2, 10, 0, 0)
+    .setOption("title", "Progress by Category")
+    .setOption("legend", { position: "none" })
+    .setOption("hAxis", { format: "percent" })
+    .build();
+  sheet.insertChart(progressChart);
+
+  const completedChart = sheet.newChart()
+    .setChartType(Charts.ChartType.COLUMN)
+    .addRange(sheet.getRange("A1:A15"))
+    .addRange(sheet.getRange("F1:F15"))
+    .setPosition(20, 10, 0, 0)
+    .setOption("title", "Completed Skills at Level 3+")
+    .setOption("legend", { position: "none" })
+    .build();
+  sheet.insertChart(completedChart);
+
+  const highPriorityChart = sheet.newChart()
+    .setChartType(Charts.ChartType.BAR)
+    .addRange(sheet.getRange("A1:A15"))
+    .addRange(sheet.getRange("G1:G15"))
+    .setPosition(38, 10, 0, 0)
+    .setOption("title", "High Priority Open Skills")
+    .setOption("legend", { position: "none" })
+    .build();
+  sheet.insertChart(highPriorityChart);
+}
+
+function removeExistingCharts(sheet) {
+  const charts = sheet.getCharts();
+  charts.forEach(chart => sheet.removeChart(chart));
+}
+
+function applyGlobalFormattingV2(ss) {
+  ss.getSheets().forEach(sheet => {
+    sheet.getDataRange().setFontFamily("Arial").setFontSize(10);
+  });
+
+  const skillsSheet = ss.getSheetByName(TRACKER_CONFIG.sheets.skills);
+  const trackerSheet = ss.getSheetByName(TRACKER_CONFIG.sheets.tracker);
+  const dashboardSheet = ss.getSheetByName(TRACKER_CONFIG.sheets.dashboard);
+  const projectsSheet = ss.getSheetByName(TRACKER_CONFIG.sheets.projects);
+
+  if (skillsSheet) {
+    const lastRow = skillsSheet.getLastRow();
+    if (lastRow > 1) {
+      skillsSheet.getRange(2, TRACKER_CONFIG.columns.skills.lastPracticed, lastRow - 1, 1)
+        .setNumberFormat("yyyy-mm-dd hh:mm");
+    }
+  }
+
+  if (dashboardSheet) {
+    dashboardSheet.getRange("E2:E15").setNumberFormat("0.00%");
+    dashboardSheet.getRange("B23").setNumberFormat("0.00%");
+  }
+
+  if (trackerSheet) {
+    const lastRow = trackerSheet.getLastRow();
+    if (lastRow > 1) {
+      trackerSheet.getRange(2, TRACKER_CONFIG.columns.tracker.completionPercent, lastRow - 1, 1)
+        .setNumberFormat("0");
+    }
+  }
+
+  if (projectsSheet) {
+    const lastRow = projectsSheet.getLastRow();
+    if (lastRow > 1) {
+      projectsSheet.getRange(2, TRACKER_CONFIG.columns.projects.completion, lastRow - 1, 1)
+        .setNumberFormat("0");
+    }
+  }
+}
+
+function getSkillsRows() {
+  return [
+    ["Core Software","Python basics",4,0,"","High",1,"","","","",""],
+    ["Core Software","Python file handling",4,0,"","High",1,"","","","",""],
+    ["Core Software","Python JSON/CSV parsing",4,0,"","High",1,"","","","",""],
+    ["Core Software","Python exception handling",3,0,"","Medium",1,"","","","",""],
+    ["Core Software","Python automation scripting",4,0,"","High",1,"","","","",""],
+    ["Core Software","Linux command line",4,0,"","High",2,"","","","",""],
+    ["Core Software","Linux file permissions",3,0,"","Medium",2,"","","","",""],
+    ["Core Software","Linux process inspection",4,0,"","High",2,"","","","",""],
+    ["Core Software","Linux log inspection",4,0,"","High",2,"","","","",""],
+    ["Core Software","Linux service management",3,0,"","Medium",2,"","","","",""],
+    ["Core Software","Git basics",4,0,"","High",3,"","","","",""],
+    ["Core Software","Git branching and diff",3,0,"","Medium",3,"","","","",""],
+    ["Core Software","VS Code productivity",3,0,"","Low",1,"","","","",""],
+    ["Core Software","Debugging mindset",5,0,"","High",1,"","","","",""],
+    ["Core Software","Documentation habits",5,0,"","High",1,"","","","",""],
+
+    ["Networking","IP addressing basics",4,0,"","High",7,"","","","",""],
+    ["Networking","Subnet understanding",4,0,"","High",7,"","","","",""],
+    ["Networking","TCP vs UDP",3,0,"","Medium",7,"","","","",""],
+    ["Networking","Port/service basics",3,0,"","Medium",7,"","","","",""],
+    ["Networking","Connectivity testing with ping",4,0,"","High",2,"","","","",""],
+    ["Networking","Network interface inspection",4,0,"","High",7,"","","","",""],
+    ["Networking","Route inspection",3,0,"","Medium",7,"","","","",""],
+    ["Networking","Reachability diagnosis",4,0,"","High",7,"","","","",""],
+    ["Networking","Wireshark basics",3,0,"","Medium",7,"","","","",""],
+    ["Networking","Packet capture interpretation",3,0,"","Medium",7,"","","","",""],
+    ["Networking","Latency problem detection",3,0,"","Medium",7,"","","","",""],
+    ["Networking","Device communication mapping",4,0,"","Medium",12,"","","","",""],
+    ["Networking","Industrial communication overview",3,0,"","Medium",12,"","","","",""],
+    ["Networking","Communication root-cause isolation",4,0,"","High",16,"","","","",""],
+
+    ["ROS Fundamentals","ROS 2 installation",4,0,"","High",3,"","","","",""],
+    ["ROS Fundamentals","ROS environment setup",4,0,"","High",3,"","","","",""],
+    ["ROS Fundamentals","ROS workspace creation",4,0,"","High",3,"","","","",""],
+    ["ROS Fundamentals","Build with colcon",4,0,"","High",3,"","","","",""],
+    ["ROS Fundamentals","ROS package structure",3,0,"","Medium",4,"","","","",""],
+    ["ROS Fundamentals","ROS nodes concept",4,0,"","High",4,"","","","",""],
+    ["ROS Fundamentals","ROS topics concept",4,0,"","High",4,"","","","",""],
+    ["ROS Fundamentals","ROS services concept",4,0,"","High",4,"","","","",""],
+    ["ROS Fundamentals","ROS actions concept",2,0,"","Low",8,"","","","",""],
+    ["ROS Fundamentals","ROS parameters",4,0,"","High",4,"","","","",""],
+    ["ROS Fundamentals","ROS launch files",4,0,"","High",5,"","","","",""],
+    ["ROS Fundamentals","ROS CLI tools",4,0,"","High",4,"","","","",""],
+    ["ROS Fundamentals","ros2 topic list/echo/hz usage",4,0,"","High",4,"","","","",""],
+    ["ROS Fundamentals","ros2 node list usage",4,0,"","High",4,"","","","",""],
+    ["ROS Fundamentals","ros2 service list usage",3,0,"","Medium",4,"","","","",""],
+    ["ROS Fundamentals","ros2 param list/set usage",4,0,"","High",4,"","","","",""],
+
+    ["ROS Troubleshooting","Missing node diagnosis",4,0,"","High",4,"","","","",""],
+    ["ROS Troubleshooting","Wrong topic diagnosis",4,0,"","High",4,"","","","",""],
+    ["ROS Troubleshooting","Parameter mismatch diagnosis",4,0,"","High",8,"","","","",""],
+    ["ROS Troubleshooting","Launch failure diagnosis",4,0,"","High",8,"","","","",""],
+    ["ROS Troubleshooting","TF issue diagnosis",4,0,"","High",5,"","","","",""],
+    ["ROS Troubleshooting","Sensor topic health checking",4,0,"","High",6,"","","","",""],
+    ["ROS Troubleshooting","ROS logging review",3,0,"","Medium",8,"","","","",""],
+    ["ROS Troubleshooting","Rosbag record/replay",4,0,"","High",6,"","","","",""],
+    ["ROS Troubleshooting","Replay-based debugging",3,0,"","Medium",6,"","","","",""],
+    ["ROS Troubleshooting","Topic frequency monitoring",4,0,"","High",6,"","","","",""],
+    ["ROS Troubleshooting","Stale data detection",4,0,"","High",6,"","","","",""],
+    ["ROS Troubleshooting","Baseline ROS system validation",4,0,"","High",8,"","","","",""],
+    ["ROS Troubleshooting","Fault report writing for ROS issues",4,0,"","High",8,"","","","",""],
+
+    ["ROS Visualization and Simulation","RViz basics",4,0,"","High",5,"","","","",""],
+    ["ROS Visualization and Simulation","URDF basics",3,0,"","Medium",5,"","","","",""],
+    ["ROS Visualization and Simulation","TF tree understanding",4,0,"","High",5,"","","","",""],
+    ["ROS Visualization and Simulation","Frame naming discipline",3,0,"","Medium",5,"","","","",""],
+    ["ROS Visualization and Simulation","Detecting broken transforms",4,0,"","High",5,"","","","",""],
+    ["ROS Visualization and Simulation","Visualizing topics in RViz",4,0,"","High",5,"","","","",""],
+    ["ROS Visualization and Simulation","Gazebo basics",3,0,"","Medium",6,"","","","",""],
+    ["ROS Visualization and Simulation","Running simulated robot",4,0,"","High",6,"","","","",""],
+    ["ROS Visualization and Simulation","Identifying sensor/topic outputs in simulation",4,0,"","High",6,"","","","",""],
+    ["ROS Visualization and Simulation","Simulation fault injection",3,0,"","Medium",6,"","","","",""],
+
+    ["Industrial Fundamentals","PLC role understanding",4,0,"","High",9,"","","","",""],
+    ["Industrial Fundamentals","Digital input/output concepts",5,0,"","High",9,"","","","",""],
+    ["Industrial Fundamentals","Analog signal awareness",3,0,"","Medium",9,"","","","",""],
+    ["Industrial Fundamentals","Sensor vs actuator understanding",4,0,"","High",9,"","","","",""],
+    ["Industrial Fundamentals","Machine state concept",4,0,"","High",9,"","","","",""],
+    ["Industrial Fundamentals","Interlock concept",5,0,"","High",10,"","","","",""],
+    ["Industrial Fundamentals","Startup/reset sequence understanding",5,0,"","High",10,"","","","",""],
+    ["Industrial Fundamentals","Alarm/warning distinction",4,0,"","High",11,"","","","",""],
+    ["Industrial Fundamentals","HMI role understanding",4,0,"","Medium",11,"","","","",""],
+    ["Industrial Fundamentals","Safety chain awareness high level",3,0,"","Medium",9,"","","","",""],
+    ["Industrial Fundamentals","Robot cell architecture understanding",5,0,"","High",9,"","","","",""],
+    ["Industrial Fundamentals","Signal mapping table creation",5,0,"","High",9,"","","","",""],
+
+    ["PLC and Control","Ladder logic basics",4,0,"","High",10,"","","","",""],
+    ["PLC and Control","Contacts and coils",4,0,"","High",10,"","","","",""],
+    ["PLC and Control","Timers and counters",3,0,"","Medium",10,"","","","",""],
+    ["PLC and Control","Seal-in latch logic",3,0,"","Medium",10,"","","","",""],
+    ["PLC and Control","Fault reset logic reading",4,0,"","High",10,"","","","",""],
+    ["PLC and Control","Reading permissive conditions",5,0,"","High",10,"","","","",""],
+    ["PLC and Control","Detecting startup blockers",5,0,"","High",10,"","","","",""],
+    ["PLC and Control","PLC simulation project setup",3,0,"","Medium",10,"","","","",""],
+    ["PLC and Control","Simple machine sequence creation",3,0,"","Medium",10,"","","","",""],
+    ["PLC and Control","Diagnosing logic block conditions",4,0,"","High",10,"","","","",""],
+    ["PLC and Control","Explaining cause of interlock failure",5,0,"","High",10,"","","","",""],
+
+    ["Industrial Networks","PROFINET awareness",3,0,"","Medium",12,"","","","",""],
+    ["Industrial Networks","EtherNet IP awareness",3,0,"","Medium",12,"","","","",""],
+    ["Industrial Networks","Modbus awareness",3,0,"","Medium",12,"","","","",""],
+    ["Industrial Networks","EtherCAT awareness",2,0,"","Low",12,"","","","",""],
+    ["Industrial Networks","OPC UA awareness",2,0,"","Low",12,"","","","",""],
+    ["Industrial Networks","Wrong IP subnet diagnosis",4,0,"","High",12,"","","","",""],
+    ["Industrial Networks","Timeout symptom recognition",4,0,"","High",12,"","","","",""],
+    ["Industrial Networks","Device offline state diagnosis",4,0,"","High",12,"","","","",""],
+    ["Industrial Networks","Communication table creation",4,0,"","High",12,"","","","",""],
+    ["Industrial Networks","PLC to robot link reasoning",4,0,"","High",14,"","","","",""],
+    ["Industrial Networks","HMI to PLC link reasoning",3,0,"","Medium",12,"","","","",""],
+    ["Industrial Networks","Communication issue documentation",4,0,"","High",16,"","","","",""],
+
+    ["Robot Software and Controller","Use of one vendor ecosystem",4,0,"","High",13,"","","","",""],
+    ["Robot Software and Controller","Robot controller concept",4,0,"","High",13,"","","","",""],
+    ["Robot Software and Controller","Teach pendant UI familiarity",3,0,"","Medium",13,"","","","",""],
+    ["Robot Software and Controller","Program structure understanding",4,0,"","High",13,"","","","",""],
+    ["Robot Software and Controller","Point waypoint basics",3,0,"","Medium",13,"","","","",""],
+    ["Robot Software and Controller","Tool TCP concept",4,0,"","High",13,"","","","",""],
+    ["Robot Software and Controller","Frame work object concept",4,0,"","High",13,"","","","",""],
+    ["Robot Software and Controller","Event log alarm log review",4,0,"","High",13,"","","","",""],
+    ["Robot Software and Controller","IO configuration awareness",4,0,"","High",14,"","","","",""],
+    ["Robot Software and Controller","Startup state awareness",4,0,"","High",14,"","","","",""],
+    ["Robot Software and Controller","Program deployment basics",3,0,"","Medium",13,"","","","",""],
+    ["Robot Software and Controller","Configuration archive awareness",4,0,"","High",15,"","","","",""],
+
+    ["Industrial Diagnostics","Robot not ready diagnosis",5,0,"","High",16,"","","","",""],
+    ["Industrial Diagnostics","Start blocked diagnosis",5,0,"","High",14,"","","","",""],
+    ["Industrial Diagnostics","Fault reset blocked diagnosis",5,0,"","High",16,"","","","",""],
+    ["Industrial Diagnostics","IO mapping fault diagnosis",4,0,"","High",16,"","","","",""],
+    ["Industrial Diagnostics","Mode mismatch diagnosis",4,0,"","High",16,"","","","",""],
+    ["Industrial Diagnostics","Tool frame mismatch diagnosis",4,0,"","High",13,"","","","",""],
+    ["Industrial Diagnostics","Alarm driven troubleshooting",5,0,"","High",11,"","","","",""],
+    ["Industrial Diagnostics","Startup sequencing analysis",5,0,"","High",14,"","","","",""],
+    ["Industrial Diagnostics","PLC robot handshake understanding",5,0,"","High",14,"","","","",""],
+    ["Industrial Diagnostics","Recovery validation after fix",5,0,"","High",16,"","","","",""],
+    ["Industrial Diagnostics","Commissioning checklist thinking",4,0,"","Medium",16,"","","","",""],
+    ["Industrial Diagnostics","Root cause reporting for industrial issue",5,0,"","High",16,"","","","",""],
+
+    ["Backup and Config Control","Importance of backup before changes",5,0,"","High",15,"","","","",""],
+    ["Backup and Config Control","Backup checklist creation",5,0,"","High",15,"","","","",""],
+    ["Backup and Config Control","Restore checklist creation",4,0,"","High",15,"","","","",""],
+    ["Backup and Config Control","Version manifest creation",4,0,"","High",15,"","","","",""],
+    ["Backup and Config Control","Config comparison workflow",5,0,"","High",15,"","","","",""],
+    ["Backup and Config Control","Rollback planning",4,0,"","High",15,"","","","",""],
+    ["Backup and Config Control","Naming versioning discipline",4,0,"","Medium",15,"","","","",""],
+    ["Backup and Config Control","Change impact awareness",5,0,"","High",15,"","","","",""],
+    ["Backup and Config Control","Risky parameter identification",4,0,"","High",15,"","","","",""],
+    ["Backup and Config Control","Post restore verification",4,0,"","High",16,"","","","",""],
+
+    ["Automation Engineering","CSV processing automation",4,0,"","High",1,"","","","",""],
+    ["Automation Engineering","JSON YAML config automation",4,0,"","High",1,"","","","",""],
+    ["Automation Engineering","Log parsing automation",5,0,"","High",1,"","","","",""],
+    ["Automation Engineering","Automated report generation",4,0,"","Medium",2,"","","","",""],
+    ["Automation Engineering","Diagnostic script design",5,0,"","High",8,"","","","",""],
+    ["Automation Engineering","Device ping checker script",4,0,"","High",7,"","","","",""],
+    ["Automation Engineering","ROS health monitor script",4,0,"","High",4,"","","","",""],
+    ["Automation Engineering","Startup readiness checker",4,0,"","High",5,"","","","",""],
+    ["Automation Engineering","Config diff script",5,0,"","High",1,"","","","",""],
+    ["Automation Engineering","Alarm history analyzer",4,0,"","High",11,"","","","",""],
+    ["Automation Engineering","Inventory version report generator",4,0,"","High",15,"","","","",""],
+    ["Automation Engineering","Reusable troubleshooting template creation",4,0,"","Medium",8,"","","","",""],
+
+    ["AI and Data","Pandas basics",3,0,"","Medium",6,"","","","",""],
+    ["AI and Data","NumPy basics",2,0,"","Low",6,"","","","",""],
+    ["AI and Data","Matplotlib plotting",3,0,"","Medium",6,"","","","",""],
+    ["AI and Data","Time series trend inspection",4,0,"","High",15,"","","","",""],
+    ["AI and Data","Fault frequency analysis",4,0,"","High",11,"","","","",""],
+    ["AI and Data","Rule based fault classification",5,0,"","High",1,"","","","",""],
+    ["AI and Data","Health score generation",4,0,"","High",2,"","","","",""],
+    ["AI and Data","Anomaly detection basics",3,0,"","Medium",6,"","","","",""],
+    ["AI and Data","Latency trend analysis",3,0,"","Medium",7,"","","","",""],
+    ["AI and Data","Sensor rate anomaly detection",4,0,"","High",6,"","","","",""],
+    ["AI and Data","Predictive maintenance basics",3,0,"","Medium",15,"","","","",""],
+    ["AI and Data","Risk scoring for config changes",4,0,"","High",13,"","","","",""],
+    ["AI and Data","AI assisted diagnostics concept understanding",4,0,"","Medium",8,"","","","",""],
+    ["AI and Data","Simple scikit learn usage",2,0,"","Low",16,"","","","",""],
+    ["AI and Data","Fault triage assistant implementation",4,0,"","High",16,"","","","",""],
+
+    ["Troubleshooting Behavior","Symptom definition",5,0,"","High",1,"","","","",""],
+    ["Troubleshooting Behavior","Reproducing fault safely",4,0,"","High",4,"","","","",""],
+    ["Troubleshooting Behavior","Evidence gathering",5,0,"","High",2,"","","","",""],
+    ["Troubleshooting Behavior","Log based diagnosis",5,0,"","High",8,"","","","",""],
+    ["Troubleshooting Behavior","Distinguishing software vs hardware cause",5,0,"","High",16,"","","","",""],
+    ["Troubleshooting Behavior","Distinguishing config vs communication cause",5,0,"","High",12,"","","","",""],
+    ["Troubleshooting Behavior","Hypothesis driven troubleshooting",5,0,"","High",8,"","","","",""],
+    ["Troubleshooting Behavior","Validating the fix",5,0,"","High",8,"","","","",""],
+    ["Troubleshooting Behavior","Creating preventive actions",4,0,"","Medium",16,"","","","",""],
+    ["Troubleshooting Behavior","Writing root cause report",5,0,"","High",16,"","","","",""],
+    ["Troubleshooting Behavior","Writing recovery checklist",4,0,"","Medium",11,"","","","",""],
+    ["Troubleshooting Behavior","Communicating status clearly",5,0,"","High",16,"","","","",""]
+  ];
+}
